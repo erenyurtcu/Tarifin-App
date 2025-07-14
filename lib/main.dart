@@ -41,23 +41,38 @@ class _SpeechPageState extends State<SpeechPage> {
   void initState() {
     super.initState();
     _speech = stt.SpeechToText();
+    Future.delayed(Duration.zero, () async {
+      await _flutterTts.setSpeechRate(0.45);
+    });
   }
 
+
   Future<void> _startListening() async {
-    bool available = await _speech.initialize();
+    print(">>> Başlatılıyor...");
+    bool available = await _speech.initialize(
+      onStatus: (status) => print("SPEECH STATUS: $status"),
+      onError: (error) => print("SPEECH ERROR: ${error.errorMsg}"),
+    );
+    print("Speech initialized: $available");
+
     if (available) {
+      print(">>> Dinleme başladı...");
       setState(() => _isListening = true);
       _speech.listen(
         onResult: (val) {
+          print("Recognized words: ${val.recognizedWords}");
           setState(() {
             _recognizedText = val.recognizedWords;
-            _textController.text = val.recognizedWords; // otomatik olarak yazı alanına da yazsın
+            _textController.text = val.recognizedWords;
           });
         },
         listenFor: const Duration(seconds: 6),
       );
+    } else {
+      print(">>> Mikrofon başlatılamadı.");
     }
   }
+
 
   Future<void> _stopListeningAndSend() async {
     _speech.stop();
@@ -93,9 +108,20 @@ class _SpeechPageState extends State<SpeechPage> {
         setState(() {
           _responseText = currentText;
         });
-      }, onDone: () async {
-        await _flutterTts.speak(_responseText);
-      }, onError: (e) {
+      },
+
+          onDone: () async {
+            if (_responseText.isNotEmpty) {
+              final sentences = _responseText.split(RegExp(r'[.!?]')).where((s) => s.trim().isNotEmpty);
+              for (final sentence in sentences) {
+                await _flutterTts.speak(sentence.trim());
+                await Future.delayed(const Duration(milliseconds: 1500));
+              }
+              await _flutterTts.stop();
+              await _flutterTts.speak(_responseText);
+            }
+          }
+          , onError: (e) {
         setState(() {
           _responseText = "Streaming hatası: $e";
         });
@@ -138,6 +164,16 @@ class _SpeechPageState extends State<SpeechPage> {
               maxLines: 3,
             ),
             const SizedBox(height: 20),
+            const SizedBox(height: 20),
+            const Text("🎤 Canlı Konuşma:"),
+            Text(
+              _recognizedText,
+              style: const TextStyle(
+                fontSize: 16,
+                color: Colors.black87,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
             const Text("🧠 Yanıt:"),
             const SizedBox(height: 8),
             // 🔽 Yanıt için markdown + scroll + overflow kontrolü
