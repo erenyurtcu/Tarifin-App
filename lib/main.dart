@@ -3,6 +3,7 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 
 void main() {
   runApp(const MyApp());
@@ -34,6 +35,7 @@ class _SpeechPageState extends State<SpeechPage> {
   String _recognizedText = '';
   String _responseText = '';
   final FlutterTts _flutterTts = FlutterTts();
+  final TextEditingController _textController = TextEditingController();
 
   @override
   void initState() {
@@ -49,6 +51,7 @@ class _SpeechPageState extends State<SpeechPage> {
         onResult: (val) {
           setState(() {
             _recognizedText = val.recognizedWords;
+            _textController.text = val.recognizedWords; // otomatik olarak yazı alanına da yazsın
           });
         },
         listenFor: const Duration(seconds: 6),
@@ -59,32 +62,53 @@ class _SpeechPageState extends State<SpeechPage> {
   Future<void> _stopListeningAndSend() async {
     _speech.stop();
     setState(() => _isListening = false);
+    await _sendText(_textController.text);
+  }
 
-    if (_recognizedText.isNotEmpty) {
-      try {
-        final response = await http.post(
-          Uri.parse("http://10.0.2.2:5000/api"), // emülatör için
-          headers: {"Content-Type": "application/json"},
-          body: json.encode({"text": _recognizedText}),
-        );
+  Future<void> _sendText(String inputText) async {
+    if (inputText.isEmpty) return;
 
-        if (response.statusCode == 200) {
-          setState(() {
-            _responseText = json.decode(response.body)['reply'];
-          });
-          await _flutterTts.speak(_responseText);
-        } else {
-          setState(() {
-            _responseText = "Hata: ${response.statusCode}";
-          });
+    final url = Uri.parse("http://172.18.80.190:5000/generate"); // WSL IP
+
+    try {
+      final request = http.Request('POST', url)
+        ..headers['Content-Type'] = 'application/json'
+        ..body = json.encode({'text': inputText});
+
+      final streamedResponse = await request.send();
+
+      StringBuffer buffer = StringBuffer();
+
+      streamedResponse.stream
+          .transform(utf8.decoder)
+          .listen((chunk) {
+        buffer.write(chunk);
+        String currentText = buffer.toString();
+
+        // Eğer output, inputText ile başlıyorsa baştaki kısmı kaldır
+        if (currentText.startsWith(inputText)) {
+          currentText = currentText.substring(inputText.length).trimLeft();
         }
-      } catch (e) {
+
         setState(() {
-          _responseText = "Sunucuya bağlanılamadı: $e";
+          _responseText = currentText;
         });
-      }
+      }, onDone: () async {
+        await _flutterTts.speak(_responseText);
+      }, onError: (e) {
+        setState(() {
+          _responseText = "Streaming hatası: $e";
+        });
+      });
+
+    } catch (e) {
+      setState(() {
+        _responseText = "Sunucuya bağlanılamadı: $e";
+      });
     }
   }
+
+
 
   @override
   Widget build(BuildContext context) {
@@ -99,13 +123,49 @@ class _SpeechPageState extends State<SpeechPage> {
               onPressed: _isListening ? _stopListeningAndSend : _startListening,
               child: Text(_isListening ? "Durdur ve Gönder" : "Konuşmaya Başla"),
             ),
-            const SizedBox(height: 20),
-            Text("🎤 Algılanan: $_recognizedText"),
             const SizedBox(height: 10),
-            Text("🧠 Yanıt: $_responseText"),
+            TextField(
+              controller: _textController,
+              decoration: InputDecoration(
+                labelText: "Yazılı olarak sor",
+                border: OutlineInputBorder(),
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.send),
+                  onPressed: () => _sendText(_textController.text),
+                ),
+              ),
+              minLines: 1,
+              maxLines: 3,
+            ),
+            const SizedBox(height: 20),
+            const Text("🧠 Yanıt:"),
+            const SizedBox(height: 8),
+            // 🔽 Yanıt için markdown + scroll + overflow kontrolü
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  border: Border.all(color: Colors.grey.shade300),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: SingleChildScrollView(
+                  child: MarkdownBody(
+                    data: _responseText,
+                    styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                      p: const TextStyle(fontSize: 16),
+                      h1: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                      h2: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      strong: const TextStyle(color: Colors.deepPurple),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 }
+

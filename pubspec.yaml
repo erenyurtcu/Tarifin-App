@@ -32,6 +32,8 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.8
 
+  flutter_markdown: ^0.6.18
+
   http: ^1.2.1
   speech_to_text: ^7.1.0
   flutter_tts: ^4.0.2
