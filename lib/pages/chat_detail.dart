@@ -1,54 +1,37 @@
 import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
-import 'package:http/http.dart' as http;
-import 'dart:convert';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
-import 'pages/chat_home.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 
-void main() {
-  runApp(const MyApp());
-}
-
+// MODEL
 class ChatMessage {
   final String role; // 'user' or 'assistant'
-  String content;
+  final String content;
 
   ChatMessage({required this.role, required this.content});
 }
 
 class ChatSession {
   final String id;
-  String title;
+  final String title;
   final List<ChatMessage> messages;
 
   ChatSession({required this.id, required this.title, required this.messages});
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+// SAYFA
+class ChatDetailPage extends StatefulWidget {
+  final ChatSession session;
+
+  const ChatDetailPage({super.key, required this.session});
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'tarifin - Recipe Assistant',
-      theme: ThemeData(primarySwatch: Colors.deepPurple),
-      debugShowCheckedModeBanner: false,
-      home: const ChatHomePage(),
-    );
-  }
+  State<ChatDetailPage> createState() => _ChatDetailPageState();
 }
 
-class SpeechPage extends StatefulWidget {
-  const SpeechPage({super.key});
-
-  @override
-  State<SpeechPage> createState() => _SpeechPageState();
-}
-
-class _SpeechPageState extends State<SpeechPage> {
-  List<ChatSession> _sessions = [];
-  ChatSession? _currentSession;
+class _ChatDetailPageState extends State<ChatDetailPage> {
   late stt.SpeechToText _speech;
   bool _isListening = false;
   String _recognizedText = '';
@@ -65,21 +48,16 @@ class _SpeechPageState extends State<SpeechPage> {
     });
   }
 
-
   Future<void> _startListening() async {
-    print(">>> Başlatılıyor...");
     bool available = await _speech.initialize(
       onStatus: (status) => print("SPEECH STATUS: $status"),
       onError: (error) => print("SPEECH ERROR: ${error.errorMsg}"),
     );
-    print("Speech initialized: $available");
 
     if (available) {
-      print(">>> Dinleme başladı...");
       setState(() => _isListening = true);
       _speech.listen(
         onResult: (val) {
-          print("Recognized words: ${val.recognizedWords}");
           setState(() {
             _recognizedText = val.recognizedWords;
             _textController.text = val.recognizedWords;
@@ -87,11 +65,8 @@ class _SpeechPageState extends State<SpeechPage> {
         },
         listenFor: const Duration(seconds: 6),
       );
-    } else {
-      print(">>> Mikrofon başlatılamadı.");
     }
   }
-
 
   Future<void> _stopListeningAndSend() async {
     _speech.stop();
@@ -100,19 +75,9 @@ class _SpeechPageState extends State<SpeechPage> {
   }
 
   Future<void> _sendText(String inputText) async {
+    if (inputText.isEmpty) return;
 
-    if (inputText.trim().isEmpty) return;
-
-    if (_currentSession != null && !_sessions.contains(_currentSession)) {
-      final newTitle = inputText.length > 40 ? inputText.substring(0, 40) + "..." : inputText;
-      setState(() {
-        _currentSession!.title = newTitle;
-        _sessions.add(_currentSession!);
-      });
-    }
-
-    _currentSession?.messages.add(ChatMessage(role: 'user', content: inputText));
-    setState(() {}); // Kullanıcının mesajı hemen görünsün
+    widget.session.messages.add(ChatMessage(role: 'user', content: inputText));
 
     final url = Uri.parse("http://172.18.80.190:5000/generate");
 
@@ -122,88 +87,57 @@ class _SpeechPageState extends State<SpeechPage> {
         ..body = json.encode({'text': inputText});
 
       final streamedResponse = await request.send();
-
       StringBuffer buffer = StringBuffer();
 
-      // Asistanın ilk mesajını boş olarak ekle
-      final assistantMessage = ChatMessage(role: 'assistant', content: '');
-      _currentSession?.messages.add(assistantMessage);
-      setState(() {}); // Mesaj kutusunu göster
+      streamedResponse.stream.transform(utf8.decoder).listen(
+            (chunk) {
+          buffer.write(chunk);
+          String currentText = buffer.toString();
 
-      streamedResponse.stream
-          .transform(utf8.decoder)
-          .listen((chunk) {
-        buffer.write(chunk);
-        String currentText = buffer.toString();
-
-        if (currentText.startsWith(inputText)) {
-          currentText = currentText.substring(inputText.length).trimLeft();
-        }
-
-        setState(() {
-          assistantMessage.content = currentText; // sadece içerik güncelle
-        });
-      }, onDone: () async {
-        _responseText = buffer.toString();
-
-        if (_responseText.isNotEmpty) {
-          final sentences = _responseText
-              .split(RegExp(r'[.!?]'))
-              .where((s) => s.trim().isNotEmpty);
-
-          for (final sentence in sentences) {
-            await _flutterTts.speak(sentence.trim());
-            await Future.delayed(const Duration(milliseconds: 1500));
+          if (currentText.startsWith(inputText)) {
+            currentText = currentText.substring(inputText.length).trimLeft();
           }
 
-          await _flutterTts.stop();
-          await _flutterTts.speak(_responseText);
-        }
-      }, onError: (e) {
-        setState(() {
-          _responseText = "Streaming hatası: $e";
-        });
-      });
+          setState(() {
+            _responseText = currentText;
+            widget.session.messages
+                .add(ChatMessage(role: 'assistant', content: currentText));
+          });
+        },
+        onDone: () async {
+          if (_responseText.isNotEmpty) {
+            final sentences = _responseText
+                .split(RegExp(r'[.!?]'))
+                .where((s) => s.trim().isNotEmpty);
+            for (final sentence in sentences) {
+              await _flutterTts.speak(sentence.trim());
+              await Future.delayed(const Duration(milliseconds: 1500));
+            }
+            await _flutterTts.stop();
+            await _flutterTts.speak(_responseText);
+          }
+        },
+        onError: (e) {
+          setState(() {
+            _responseText = "Streaming hatası: $e";
+          });
+        },
+      );
     } catch (e) {
       setState(() {
         _responseText = "Sunucuya bağlanılamadı: $e";
       });
     }
-  }
 
+    _textController.clear();
+    _recognizedText = '';
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text.rich(
-          TextSpan(
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w600,
-              color: Colors.deepPurple,
-            ),
-            children: [
-              const TextSpan(
-                text: 'tarifin',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: Colors.amber,
-                ),
-              ),
-              const TextSpan(
-                text: ' – ',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black,
-                ),
-              ),
-              const TextSpan(
-                text: 'Recipe Assistant',
-              ),
-            ],
-          ),
-        ),
+        title: Text(widget.session.title),
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
@@ -228,7 +162,7 @@ class _SpeechPageState extends State<SpeechPage> {
               minLines: 1,
               maxLines: 3,
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
             const Text("🎤 Live Transcription:"),
             Text(
               _recognizedText,
@@ -242,11 +176,10 @@ class _SpeechPageState extends State<SpeechPage> {
             const Text("Answer:"),
             const SizedBox(height: 8),
             Expanded(
-              child: _currentSession != null
-                  ? ListView.builder(
-                itemCount: _currentSession!.messages.length,
+              child: ListView.builder(
+                itemCount: widget.session.messages.length,
                 itemBuilder: (context, index) {
-                  final message = _currentSession!.messages[index];
+                  final message = widget.session.messages[index];
                   return Align(
                     alignment: message.role == 'user'
                         ? Alignment.centerRight
@@ -271,28 +204,10 @@ class _SpeechPageState extends State<SpeechPage> {
                     ),
                   );
                 },
-              )
-                  : const Center(child: Text("No conversations started yet.")),
+              ),
             ),
           ],
         ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          final newSession = ChatSession(
-            id: DateTime.now().millisecondsSinceEpoch.toString(),
-            title: "",
-            messages: [],
-          );
-          setState(() {
-            _currentSession = newSession;
-            _textController.clear();
-            _recognizedText = '';
-            _responseText = '';
-          });
-        },
-        tooltip: 'New Chat',
-        child: const Icon(Icons.add),
       ),
     );
   }
