@@ -50,7 +50,7 @@ class _ChatHomePageState extends State<ChatHomePage> {
         onPressed: () {
           final newSession = ChatSession(
             id: DateTime.now().millisecondsSinceEpoch.toString(),
-            title: "Chat ${sessions.length + 1}",
+            title: "",
             messages: [],
           );
           ChatStorage.addSession(newSession);

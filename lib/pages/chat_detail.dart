@@ -16,7 +16,7 @@ class ChatMessage {
 
 class ChatSession {
   final String id;
-  final String title;
+  String title;
   final List<ChatMessage> messages;
 
   ChatSession({required this.id, required this.title, required this.messages});
@@ -77,6 +77,13 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
 
   Future<void> _sendText(String inputText) async {
     if (inputText.isEmpty) return;
+
+    if (widget.session.title.isEmpty) {
+      final newTitle = inputText.length > 40 ? inputText.substring(0, 40) + "..." : inputText;
+      setState(() {
+        widget.session.title = newTitle;
+      });
+    }
 
     // Add the user's message
     widget.session.messages.add(ChatMessage(role: 'user', content: inputText));

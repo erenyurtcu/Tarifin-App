@@ -120,11 +120,10 @@ class _SpeechPageState extends State<SpeechPage> {
     if (inputText.trim().isEmpty) return;
 
     // Yeni bir oturum varsa başlıkla birlikte ekle
-    if (_currentSession != null && !_sessions.contains(_currentSession)) {
+    if (_currentSession!.title.isEmpty) {
       final newTitle = inputText.length > 40 ? inputText.substring(0, 40) + "..." : inputText;
       setState(() {
         _currentSession!.title = newTitle;
-        _sessions.add(_currentSession!);
       });
     }
 
