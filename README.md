@@ -2,7 +2,7 @@
 
 **tarifin** is a full-stack LLM-powered recipe assistant that enables users to request recipes via voice and receive personalized, culturally diverse, and health-conscious suggestions in real time — both as text and speech.
 
-The system includes a fine-tuned Mistral-7B model, a Flask streaming API backend, and a Flutter mobile client supporting voice input/output (STT/TTS).
+The system includes a fine-tuned Nous Hermes 2 - Mistral 7B, a Flask streaming API backend, and a Flutter mobile client supporting voice input/output (STT/TTS).
 
 ---
 
@@ -59,7 +59,7 @@ The system includes a fine-tuned Mistral-7B model, a Flask streaming API backend
 
 ### ✅ Model Details
 
-- **Base Model:** Mistral-7B
+- **Base Model:** Nous Hermes 2 - Mistral 7B
 - **Quantization:** 4-bit NF4 (via `bitsandbytes`)
 - **Fine-tuning:** LoRA (via `peft`) + `SFTTrainer`
 
@@ -118,7 +118,7 @@ TrainingArguments(
 ## Training Flow Summary
 
 ```
-AutoTokenizer + AutoModel (Mistral)
+AutoTokenizer + AutoModel (Nous Hermes 2 - Mistral 7B)
 ↓
 4-bit quantization (NF4) + LoRA (PEFT)
 ↓
