@@ -47,6 +47,7 @@ class SpeechPage extends StatefulWidget {
 }
 
 class _SpeechPageState extends State<SpeechPage> {
+  DateTime _lastUiUpdate = DateTime.now();
   List<ChatSession> _sessions = [];
   ChatSession? _currentSession;
   late stt.SpeechToText _speech;
@@ -100,8 +101,9 @@ class _SpeechPageState extends State<SpeechPage> {
   }
 
   Future<void> _sendText(String inputText) async {
-
     if (inputText.trim().isEmpty) return;
+
+    ChatMessage? assistantMessage;
 
     if (_currentSession != null && !_sessions.contains(_currentSession)) {
       final newTitle = inputText.length > 40 ? inputText.substring(0, 40) + "..." : inputText;
@@ -123,12 +125,13 @@ class _SpeechPageState extends State<SpeechPage> {
 
       final streamedResponse = await request.send();
 
-      StringBuffer buffer = StringBuffer();
+      if (_currentSession!.messages.isEmpty || _currentSession!.messages.last.role != 'assistant') {
+        assistantMessage = ChatMessage(role: 'assistant', content: '');
+        _currentSession?.messages.add(assistantMessage);
+        setState(() {});
+      }
 
-      // Asistanın ilk mesajını boş olarak ekle
-      final assistantMessage = ChatMessage(role: 'assistant', content: '');
-      _currentSession?.messages.add(assistantMessage);
-      setState(() {}); // Mesaj kutusunu göster
+      StringBuffer buffer = StringBuffer();
 
       streamedResponse.stream
           .transform(utf8.decoder)
@@ -136,13 +139,21 @@ class _SpeechPageState extends State<SpeechPage> {
         buffer.write(chunk);
         String currentText = buffer.toString();
 
+        // Kullanıcı girdisi tekrar edilmesin
         if (currentText.startsWith(inputText)) {
           currentText = currentText.substring(inputText.length).trimLeft();
         }
 
-        setState(() {
-          assistantMessage.content = currentText; // sadece içerik güncelle
-        });
+        if (assistantMessage != null) {
+          if (DateTime.now().difference(_lastUiUpdate).inMilliseconds > 100) {
+            _lastUiUpdate = DateTime.now();
+            setState(() {
+              assistantMessage!.content = currentText;
+            });
+          } else {
+            assistantMessage!.content = currentText;
+          }
+        }
       }, onDone: () async {
         _responseText = buffer.toString();
 
@@ -242,8 +253,7 @@ class _SpeechPageState extends State<SpeechPage> {
             const Text("Answer:"),
             const SizedBox(height: 8),
             Expanded(
-              child: _currentSession != null
-                  ? ListView.builder(
+              child: ListView.builder(
                 itemCount: _currentSession!.messages.length,
                 itemBuilder: (context, index) {
                   final message = _currentSession!.messages[index];
@@ -271,8 +281,7 @@ class _SpeechPageState extends State<SpeechPage> {
                     ),
                   );
                 },
-              )
-                  : const Center(child: Text("No conversations started yet.")),
+              ),
             ),
           ],
         ),
