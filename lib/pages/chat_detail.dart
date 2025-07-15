@@ -8,7 +8,8 @@ import 'package:http/http.dart' as http;
 // MODEL
 class ChatMessage {
   final String role; // 'user' or 'assistant'
-  final String content;
+  String content; // Make content mutable
+  // Add a unique ID for KeyedSubtree if needed, but not strictly necessary for simple updates if the object reference is maintained.
 
   ChatMessage({required this.role, required this.content});
 }
@@ -77,7 +78,13 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
   Future<void> _sendText(String inputText) async {
     if (inputText.isEmpty) return;
 
+    // Add the user's message
     widget.session.messages.add(ChatMessage(role: 'user', content: inputText));
+
+    // Create a single assistant message placeholder
+    final ChatMessage assistantMessage = ChatMessage(role: 'assistant', content: '...'); // Initial placeholder
+    widget.session.messages.add(assistantMessage); // Add it to the list once
+    setState(() {}); // Update UI to show both user message and assistant placeholder
 
     final url = Uri.parse("http://172.18.80.190:5000/generate");
 
@@ -99,12 +106,14 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
           }
 
           setState(() {
-            _responseText = currentText;
-            widget.session.messages
-                .add(ChatMessage(role: 'assistant', content: currentText));
+            assistantMessage.content = currentText.isNotEmpty ? currentText : 'Processing...'; // Update content
           });
         },
         onDone: () async {
+          setState(() {
+            assistantMessage.content = buffer.toString().trim(); // Final content update
+          });
+          _responseText = buffer.toString().trim();
           if (_responseText.isNotEmpty) {
             final sentences = _responseText
                 .split(RegExp(r'[.!?]'))
@@ -119,13 +128,19 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
         },
         onError: (e) {
           setState(() {
-            _responseText = "Streaming hatası: $e";
+            assistantMessage.content = "Streaming hatası: $e"; // Update content on error
           });
         },
       );
     } catch (e) {
       setState(() {
         _responseText = "Sunucuya bağlanılamadı: $e";
+        // Ensure the assistant message is updated even on connection error
+        if (widget.session.messages.isNotEmpty && widget.session.messages.last.role == 'assistant') {
+          widget.session.messages.last.content = _responseText;
+        } else {
+          widget.session.messages.add(ChatMessage(role: 'assistant', content: _responseText));
+        }
       });
     }
 

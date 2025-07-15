@@ -5,16 +5,22 @@ import 'dart:convert';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'pages/chat_home.dart';
+import 'package:uuid/uuid.dart';
+import 'dart:async'; // Timer için ekleyin
 
 void main() {
   runApp(const MyApp());
 }
 
 class ChatMessage {
-  final String role; // 'user' or 'assistant'
+  final String id;
+  final String role;
   String content;
 
-  ChatMessage({required this.role, required this.content});
+  ChatMessage({
+    required this.role,
+    required this.content,
+  }) : id = const Uuid().v4();
 }
 
 class ChatSession {
@@ -48,6 +54,7 @@ class SpeechPage extends StatefulWidget {
 
 class _SpeechPageState extends State<SpeechPage> {
   DateTime _lastUiUpdate = DateTime.now();
+  Timer? _uiUpdateTimer; // Timer objesi eklendi
   List<ChatSession> _sessions = [];
   ChatSession? _currentSession;
   late stt.SpeechToText _speech;
@@ -61,11 +68,21 @@ class _SpeechPageState extends State<SpeechPage> {
   void initState() {
     super.initState();
     _speech = stt.SpeechToText();
+    _currentSession ??= ChatSession(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      title: "New Session",
+      messages: [],
+    );
     Future.delayed(Duration.zero, () async {
       await _flutterTts.setSpeechRate(0.45);
     });
   }
 
+  @override
+  void dispose() {
+    _uiUpdateTimer?.cancel(); // Widget kapatıldığında timer'ı iptal et
+    super.dispose();
+  }
 
   Future<void> _startListening() async {
     print(">>> Başlatılıyor...");
@@ -93,7 +110,6 @@ class _SpeechPageState extends State<SpeechPage> {
     }
   }
 
-
   Future<void> _stopListeningAndSend() async {
     _speech.stop();
     setState(() => _isListening = false);
@@ -103,8 +119,7 @@ class _SpeechPageState extends State<SpeechPage> {
   Future<void> _sendText(String inputText) async {
     if (inputText.trim().isEmpty) return;
 
-    ChatMessage? assistantMessage;
-
+    // Yeni bir oturum varsa başlıkla birlikte ekle
     if (_currentSession != null && !_sessions.contains(_currentSession)) {
       final newTitle = inputText.length > 40 ? inputText.substring(0, 40) + "..." : inputText;
       setState(() {
@@ -113,8 +128,22 @@ class _SpeechPageState extends State<SpeechPage> {
       });
     }
 
-    _currentSession?.messages.add(ChatMessage(role: 'user', content: inputText));
-    setState(() {}); // Kullanıcının mesajı hemen görünsün
+    // Kullanıcının mesajı ekleniyor
+    if (_currentSession != null) {
+      _currentSession!.messages.add(ChatMessage(role: 'user', content: inputText));
+    } else {
+      // Eğer _currentSession null ise, yeni bir oturum oluştur
+      _currentSession = ChatSession(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        title: inputText.length > 40 ? inputText.substring(0, 40) + "..." : inputText,
+        messages: [ChatMessage(role: 'user', content: inputText)],
+      );
+    }
+
+    // Tek bir assistant mesajı placeholder olarak oluşturulur
+    final ChatMessage assistantMessage = ChatMessage(role: 'assistant', content: '...');
+    _currentSession!.messages.add(assistantMessage);
+    setState(() {}); // Kullanıcı mesajını ve boş asistan mesajını göstermek için UI'ı güncelle
 
     final url = Uri.parse("http://172.18.80.190:5000/generate");
 
@@ -124,64 +153,62 @@ class _SpeechPageState extends State<SpeechPage> {
         ..body = json.encode({'text': inputText});
 
       final streamedResponse = await request.send();
-
-      if (_currentSession!.messages.isEmpty || _currentSession!.messages.last.role != 'assistant') {
-        assistantMessage = ChatMessage(role: 'assistant', content: '');
-        _currentSession?.messages.add(assistantMessage);
-        setState(() {});
-      }
-
       StringBuffer buffer = StringBuffer();
 
-      streamedResponse.stream
-          .transform(utf8.decoder)
-          .listen((chunk) {
-        buffer.write(chunk);
-        String currentText = buffer.toString();
+      streamedResponse.stream.transform(utf8.decoder).listen(
+            (chunk) {
+          buffer.write(chunk);
+          String currentText = buffer.toString();
 
-        // Kullanıcı girdisi tekrar edilmesin
-        if (currentText.startsWith(inputText)) {
-          currentText = currentText.substring(inputText.length).trimLeft();
-        }
+          // input metnini akıştan çıkar (eğer başta tekrarlanıyorsa)
+          if (currentText.startsWith(inputText)) {
+            currentText = currentText.substring(inputText.length).trimLeft();
+          }
 
-        if (assistantMessage != null) {
-          if (DateTime.now().difference(_lastUiUpdate).inMilliseconds > 100) {
-            _lastUiUpdate = DateTime.now();
+          // Mevcut assistant mesajını güncelle
+          assistantMessage.content = currentText.isNotEmpty ? currentText : 'Processing...';
+
+          // UI güncellemesini belirli aralıklarla yap
+          if (DateTime.now().difference(_lastUiUpdate) > const Duration(milliseconds: 20)) {
             setState(() {
-              assistantMessage!.content = currentText;
+              _lastUiUpdate = DateTime.now();
             });
-          } else {
-            assistantMessage!.content = currentText;
           }
-        }
-      }, onDone: () async {
-        _responseText = buffer.toString();
-
-        if (_responseText.isNotEmpty) {
-          final sentences = _responseText
-              .split(RegExp(r'[.!?]'))
-              .where((s) => s.trim().isNotEmpty);
-
-          for (final sentence in sentences) {
-            await _flutterTts.speak(sentence.trim());
-            await Future.delayed(const Duration(milliseconds: 1500));
+        },
+        onDone: () async {
+          _uiUpdateTimer?.cancel(); // Akış bittiğinde timer'ı durdur
+          setState(() {
+            assistantMessage.content = buffer.toString().trim(); // Son içeriği ayarla
+          });
+          _responseText = buffer.toString().trim();
+          if (_responseText.isNotEmpty) {
+            final sentences = _responseText.split(RegExp(r'[.!?]')).where((s) => s.trim().isNotEmpty);
+            for (final sentence in sentences) {
+              await _flutterTts.speak(sentence.trim());
+              await Future.delayed(const Duration(milliseconds: 1500));
+            }
+            await _flutterTts.stop();
+            await _flutterTts.speak(_responseText);
           }
-
-          await _flutterTts.stop();
-          await _flutterTts.speak(_responseText);
-        }
-      }, onError: (e) {
-        setState(() {
-          _responseText = "Streaming hatası: $e";
-        });
-      });
+        },
+        onError: (e) {
+          _uiUpdateTimer?.cancel(); // Hata durumunda timer'ı durdur
+          setState(() {
+            assistantMessage.content = "Streaming hatası: $e";
+          });
+        },
+      );
     } catch (e) {
+      _uiUpdateTimer?.cancel(); // Hata durumunda timer'ı durdur
       setState(() {
         _responseText = "Sunucuya bağlanılamadı: $e";
+        assistantMessage.content = _responseText; // Bağlantı hatasında mesajı güncelle
       });
     }
-  }
 
+    _textController.clear();
+    _recognizedText = '';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -253,35 +280,40 @@ class _SpeechPageState extends State<SpeechPage> {
             const Text("Answer:"),
             const SizedBox(height: 8),
             Expanded(
-              child: ListView.builder(
+              child: _currentSession != null
+                  ? ListView.builder(
                 itemCount: _currentSession!.messages.length,
                 itemBuilder: (context, index) {
                   final message = _currentSession!.messages[index];
-                  return Align(
-                    alignment: message.role == 'user'
-                        ? Alignment.centerRight
-                        : Alignment.centerLeft,
-                    child: Container(
-                      margin: const EdgeInsets.symmetric(vertical: 4),
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: message.role == 'user'
-                            ? Colors.deepPurple.shade100
-                            : Colors.grey.shade200,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: MarkdownBody(
-                        data: message.content,
-                        styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-                          p: const TextStyle(fontSize: 16),
-                          strong: const TextStyle(color: Colors.deepPurple),
-                          code: const TextStyle(backgroundColor: Colors.black12),
+                  return KeyedSubtree(
+                    key: ValueKey(message.id),
+                    child: Align(
+                      alignment: message.role == 'user'
+                          ? Alignment.centerRight
+                          : Alignment.centerLeft,
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: message.role == 'user'
+                              ? Colors.deepPurple.shade100
+                              : Colors.grey.shade200,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: MarkdownBody(
+                          data: message.content,
+                          styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                            p: const TextStyle(fontSize: 16),
+                            strong: const TextStyle(color: Colors.deepPurple),
+                            code: const TextStyle(backgroundColor: Colors.black12),
+                          ),
                         ),
                       ),
                     ),
                   );
                 },
-              ),
+              )
+                  : const Center(child: Text("No session available")),
             ),
           ],
         ),
