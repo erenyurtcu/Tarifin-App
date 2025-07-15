@@ -155,7 +155,7 @@ Saved to ./output_longest
 ## 🔁 Checkpoint-Based Continual Training
 
 - Training resumed over 3 stages using progressive dataset splits.
-- Each phase loaded the previous checkpoint via `output_dir`.
+- Each phase resumed training from the previous checkpoint using `output_dir`.
 - Model was re-saved after each phase using `.save_model()`.
 
 ---
@@ -269,7 +269,7 @@ Result spoken aloud via TTS (flutter_tts)
 
 - `main.dart`: Entry point, handles STT/TTS logic
 - `chat_home.dart`: UI + HTTP streaming integration
-- `ChatMessage` `ChatSession`: message model structure
+- `ChatMessage`, `ChatSession`: message model structure
 
 ---
 
