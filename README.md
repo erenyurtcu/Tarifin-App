@@ -6,6 +6,23 @@ The system includes a fine-tuned Nous Hermes 2 - Mistral 7B, a Flask streaming A
 
 ---
 
+### Chat List
+
+This is the home screen showing the list of saved or past recipe conversations. Users can tap on any item to view the full response or start a new request using the floating action button.
+
+![Conversation List and Active Chat](./ui.jpg)
+
+> 💬 **Example Prompt:**  
+> _"All I have are chickpeas, carrots, and some tahini. I want to make a healthy but different dinner with these. What can I make?"_
+
+> 🧠 **Model Response:**  
+> _A full recipe titled "Chickpea and Carrot Tahini Salad" including ingredients and step-by-step instructions._
+
+The response is displayed using `flutter_markdown` and read aloud using `flutter_tts`. Input can be provided by voice using `speech_to_text`, making the experience entirely hands-free and user-friendly.
+
+
+---
+
 ## 💻 Development Environment
 
 | Component        | Specification                       |
@@ -140,6 +157,26 @@ Saved to ./output_longest
 - Training resumed over 3 stages using progressive dataset splits.
 - Each phase loaded the previous checkpoint via `output_dir`.
 - Model was re-saved after each phase using `.save_model()`.
+
+---
+
+## 📉 Training Loss Analysis
+
+After completing all fine-tuning stages, the training loss was monitored using `trainer_state.json`.  
+The plot below visualizes the **loss trend across training steps**:
+
+![Training Loss Curve](./loss.png)
+
+### 📈 Observations:
+
+- Initial loss was above **1.2**, indicating complex generation at the start.
+- A steady decline is observed throughout the training process.
+- Final loss converged around **0.38–0.42**, showing:
+  - Stable and effective fine-tuning
+  - No significant signs of overfitting
+  - Consistent generation quality even with long outputs
+
+✅ After testing the model with various held-out prompts and unseen data, we confirmed that it produces rich, structured, and context-aware recipes — validating the success of the fine-tuning process.
 
 ---
 
